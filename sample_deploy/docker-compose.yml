@@ -1,72 +1,84 @@
-# to execute, run $ docker-compose -f <your-docker-compose>.yml --env-file <your-product>.env up
-# e.g. $ docker-compose -f docker-compose.yml --env-file=hsucr.container.env up
-version: "3.7"
+# $ docker compose --env-file=container.env up -d
+---
 networks:
   federated-network:
     driver: bridge
     ipam:
       config:
-        - subnet: ${NETWORK_SUBNET:-192.168.10.0/24}
+        - subnet: 192.168.10.0/24
+volumes:
+  cv-iris-data:
+  cv-hs-data:
+  ucr-iris-data:
+  ucr-hs-data:
 services:
   webgateway:
-    image: ${WEBGATEWAY_IMAGE_PATH}:${WEBGATEWAY_IMAGE_VERSION}
+    image: containers.intersystems.com/intersystems/webgateway:latest-cd
     init: true
-    hostname: ${HOSTNAME}
-    container_name: ${COMPOSE_PROJECT_NAME}-web-gateway
+    hostname: ${PROJECT_NAME}
+    container_name: ${PROJECT_NAME}-web-gateway
     ports:
-      - ${WEBGATEWAY_SECURE_PORT:-443}:443
-    restart: "no"
-    command: --ssl
+      - 80:80
+      # - 443:443 # ssl
+    # command: --ssl # ssl
     volumes:
       - ./web-gateway/CSP.ini:/opt/webgateway/bin/CSP.ini
       - ./web-gateway/CSP.conf:/etc/apache2/mods-available/CSP.conf
-      - ./web-gateway/certificate/ssl-cert.key:/irissys/tls/webgateway/tls.key
-      - ./web-gateway/certificate/ssl-cert.pem:/irissys/tls/webgateway/tls.crt
+      - ./web-gateway/apache2.conf:/etc/apache2/apache2.conf
+      # - ./web-gateway/certificate/ssl-cert.key:/irissys/tls/webgateway/tls.key # ssl
+      # - ./web-gateway/certificate/ssl-cert.pem:/irissys/tls/webgateway/tls.crt # ssl
     networks:
       federated-network:
-        ipv4_address: ${WEBGATEWAY_NETWORK_IP_ADDRESS:-192.168.10.10}
-  instance:
-    image: ${HS_IMAGE_PATH}:${HS_IMAGE_VERSION}
+        ipv4_address: 192.168.10.10
+  cv-instance:
+    image: containers.intersystems.com/intersystems/healthshare_clinicalviewer:2024.2
     init: true
-    hostname: ${HS_INSTANCE_UNIQUE_IDENTIFIER}
-    container_name: ${COMPOSE_PROJECT_NAME}-instance
-    ports:
-      - ${INSTANCE_SUPERSERVER_PORT:-1972}:1972
-      - ${ISC_AGENT_PORT:-2188}:2188
-    extra_hosts:
-      - ${HOSTNAME}:${HOSTNAME_IP}
-    restart: "no"
-    command: --key ${ISC_CONFIG_DIRECTORY:-/config/iris/}iris.key
-      --instance ${INSTANCE_NAME}
-      -c "sudo chown -R 51773:51773 ${ISC_DATA_DIRECTORY:-/data/iris/} && sudo chown -R 51773:51773 ${ISC_HS_DATA_DIRECTORY:-/data/hs/}"
+    hostname: ${PROJECT_NAME}-cv
+    container_name: ${PROJECT_NAME}-cv
+    command: --key /config/iris/iris.key
+      --instance HSCV
+      -c "sudo chown -R 51773:51773 /data/iris/ && sudo chown -R 51773:51773 /data/hs/"
     environment:
-      - ISC_DATA_DIRECTORY=${ISC_DATA_DIRECTORY:-/data/iris/}
-      - ISC_CPF_MERGE_FILE_NAME=${ISC_CPF_MERGE_FILE_NAME:-merge.cpf}
-      - ISC_HS_DATA_DIRECTORY=${ISC_HS_DATA_DIRECTORY:-/data/hs/}
-      - ISC_CONFIG_DIRECTORY=${ISC_CONFIG_DIRECTORY:-/config/iris/}
-      - ISC_CPF_MERGE_FILE=${ISC_CONFIG_DIRECTORY:-/config/iris/}${ISC_CPF_MERGE_FILE_NAME:-merge.cpf}
-      - ISC_HS_CONFIG_DIRECTORY=${ISC_HS_CONFIG_DIRECTORY:-/config/hs/}
-      - ISC_HS_CONFIG_BASE_FILENAME=${ISC_HS_CONFIG_BASE_FILENAME:-hs-base-config.json}
-      - ISC_HS_DATA_INGESTION_DIRECTORY=${ISC_HS_DATA_INGESTION_DIRECTORY:-/data-ingestion/Data/}
+      - ISC_DATA_DIRECTORY=/data/iris/
+      - ISC_CPF_MERGE_FILE_NAME=merge.cpf
+      - ISC_HS_DATA_DIRECTORY=/data/hs/
+      - ISC_CONFIG_DIRECTORY=/config/iris/
+      - ISC_CPF_MERGE_FILE=/config/iris/merge.cpf
+      - ISC_HS_CONFIG_DIRECTORY=/config/hs/
+      - ISC_HS_CONFIG_BASE_FILENAME=hs-base-config.json
+      - ISC_HS_DATA_INGESTION_DIRECTORY=/data-ingestion/Data/
     volumes:
-      - type: bind
-        source: ${EXTERNAL_IRIS_CONFIG_DIRECTORY:-./config/iris/}
-        target: ${ISC_CONFIG_DIRECTORY:-/config/iris/}
-      - type: bind
-        source: ${EXTERNAL_HS_CONFIG_DIRECTORY:-./config/hs/}
-        target: ${ISC_HS_CONFIG_DIRECTORY:-/config/hs/}
-      - type: bind
-        source: ${EXTERNAL_DATA_INGESTION_DIRECTORY:-./data-ingestion/Data/}
-        target: ${ISC_HS_DATA_INGESTION_DIRECTORY:-/data-ingestion/Data/}
-      - type: volume
-        source: iris-data
-        target: ${ISC_DATA_DIRECTORY:-/data/iris/}
-      - type: volume
-        source: hs-data
-        target: ${ISC_HS_DATA_DIRECTORY:-/data/hs/}
+      - ./cv-config/iris/:/config/iris/
+      - ./cv-config/hs/:/config/hs/
+      - ./data-ingestion/Data/:/data-ingestion/Data/
+      - cv-iris-data:/data/iris/
+      - cv-hs-data:/data/hs/
     networks:
       federated-network:
-        ipv4_address: ${INSTANCE_NETWORK_IP_ADDRESS:-192.168.10.11}
-volumes:
-  iris-data:
-  hs-data:
+        ipv4_address: 192.168.10.11
+  ucr-instance:
+    image: containers.intersystems.com/intersystems/healthshare_unifiedcarerecord_insight_patientindex:2024.2
+    init: true
+    hostname: ${PROJECT_NAME}-ucr
+    container_name: ${PROJECT_NAME}-ucr
+    command: --key /config/iris/iris.key
+      --instance HSUCR
+      -c "sudo chown -R 51773:51773 /data/iris/ && sudo chown -R 51773:51773 /data/hs/"
+    environment:
+      - ISC_DATA_DIRECTORY=/data/iris/
+      - ISC_CPF_MERGE_FILE_NAME=merge.cpf
+      - ISC_HS_DATA_DIRECTORY=/data/hs/
+      - ISC_CONFIG_DIRECTORY=/config/iris/
+      - ISC_CPF_MERGE_FILE=/config/iris/merge.cpf
+      - ISC_HS_CONFIG_DIRECTORY=/config/hs/
+      - ISC_HS_CONFIG_BASE_FILENAME=hs-base-config.json
+      - ISC_HS_DATA_INGESTION_DIRECTORY=/data-ingestion/Data/
+    volumes:
+      - ./ucr-config/iris/:/config/iris/
+      - ./ucr-config/hs/:/config/hs/
+      - ./data-ingestion/Data/:/data-ingestion/Data/
+      - ucr-iris-data:/data/iris/
+      - ucr-hs-data:/data/hs/
+    networks:
+      federated-network:
+        ipv4_address: 192.168.10.12
